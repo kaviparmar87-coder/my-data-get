@@ -1,11 +1,12 @@
 {
   "name": "offerhatke-sync",
   "version": "1.0.0",
-  "description": "Automatic product + SEO sync (PriceHistoryApp + OpenRouter)",
+  "description": "Automatic product + SEO sync for Top9deals (PriceHistoryApp + OpenRouter)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "sync-once": "node src/runOnce.js"
+    "sync-once": "node src/runOnce.js",
+    "build": "npm install && npx puppeteer browsers install chrome"
   },
   "engines": {
     "node": ">=18"

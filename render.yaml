@@ -3,11 +3,13 @@ services:
     name: offerhatke-sync
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npx puppeteer browsers install chrome
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
         value: "20"
       - key: TZ
         value: Asia/Kolkata
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "false"
       # DATABASE_* , OPENROUTER_* , SITE_URL etc — set in Render Dashboard → Environment

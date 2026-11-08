@@ -129,7 +129,7 @@ function validate(ai, input, categories) {
 async function callModel(model, input, categories) {
   const payload = {
     model,
-    max_tokens: 1200,
+    max_tokens: 4000,
     temperature: 0.4,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },

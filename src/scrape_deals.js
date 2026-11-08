@@ -46,16 +46,43 @@ async function scrape(body) {
         (body.cursor && !/^browser:\d+$/.test(body.cursor))) {
         throw new Error('Unsupported browser pagination parameters. Retry from the first page.');
     }
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+        ],
+    });
     try {
         const page = await browser.newPage();
-        const response = await page.goto('https://pricehistoryapp.com/latest-deals', {
-            waitUntil: 'networkidle2', timeout: 45000,
-        });
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1366, height: 768 });
+
+        let response = null;
+        let lastErr = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                response = await page.goto('https://pricehistoryapp.com/latest-deals', {
+                    waitUntil: 'domcontentloaded',
+                    timeout: 45000,
+                });
+                break;
+            } catch (e) {
+                lastErr = e;
+                if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+            }
+        }
+        if (!response) throw lastErr || new Error('Navigation failed after retries');
+
+        // Wait for Next.js flight data / hydration to settle
+        await new Promise(r => setTimeout(r, 3000));
+
         if (!response.ok()) throw new Error('Deals page HTTP ' + response.status());
-        // Next.js can consume and clear its runtime queue during hydration.
-        // Read the original inline JSON records without executing page scripts.
-        const html = await response.text();
+        const html = await page.content();
         const stream = [...html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/gs)]
             .map(match => {
                 try {
