@@ -1,4 +1,40 @@
 ﻿/** Read public deals from the page and let its own UI make signed API requests. */
+const path = require('path');
+const fs = require('fs');
+
+// Project-local Chrome cache (same as scripts/install-chrome.js)
+const PROJECT_ROOT = path.join(__dirname, '..');
+const CHROME_CACHE = process.env.PUPPETEER_CACHE_DIR || path.join(PROJECT_ROOT, '.cache', 'puppeteer');
+process.env.PUPPETEER_CACHE_DIR = CHROME_CACHE;
+process.env.PUPPETEER_SKIP_DOWNLOAD = 'true';
+
+function findChromeExecutable() {
+    const candidates = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
+        path.join(CHROME_CACHE, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', 'chrome'),
+        path.join(CHROME_CACHE, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', 'chrome.exe'),
+        path.join(CHROME_CACHE, 'chrome', 'mac-131.0.6778.204', 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+    ];
+    for (const p of candidates) {
+        if (p && fs.existsSync(p)) return p;
+    }
+    // Fallback: scan cache dir for any chrome binary
+    try {
+        const chromeRoot = path.join(CHROME_CACHE, 'chrome');
+        if (fs.existsSync(chromeRoot)) {
+            for (const ver of fs.readdirSync(chromeRoot)) {
+                for (const plat of fs.readdirSync(path.join(chromeRoot, ver))) {
+                    for (const bin of ['chrome', 'chrome.exe']) {
+                        const p = path.join(chromeRoot, ver, plat, bin);
+                        if (fs.existsSync(p)) return p;
+                    }
+                }
+            }
+        }
+    } catch { /* ignore */ }
+    return null;
+}
+
 const puppeteer = require('puppeteer');
 
 function initialDeals(stream) {
@@ -46,8 +82,10 @@ async function scrape(body) {
         (body.cursor && !/^browser:\d+$/.test(body.cursor))) {
         throw new Error('Unsupported browser pagination parameters. Retry from the first page.');
     }
+    const executablePath = findChromeExecutable();
     const browser = await puppeteer.launch({
         headless: true,
+        ...(executablePath ? { executablePath } : {}),
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
