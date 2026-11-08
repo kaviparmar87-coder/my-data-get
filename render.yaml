@@ -3,8 +3,8 @@ services:
     name: offerhatke-sync
     runtime: node
     plan: free
-    buildCommand: rm -rf /opt/render/.cache/puppeteer && npm install && npx puppeteer browsers install chrome@131.0.6778.204
-    startCommand: npm start
+    buildCommand: npm install && PUPPETEER_CACHE_DIR="$PWD/.cache/puppeteer" npx puppeteer browsers install chrome@131.0.6778.204
+    startCommand: npx puppeteer browsers install chrome@131.0.6778.204 2>/dev/null; npm start
     envVars:
       - key: NODE_VERSION
         value: "20"
@@ -13,5 +13,5 @@ services:
       - key: PUPPETEER_SKIP_DOWNLOAD
         value: "true"
       - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/.cache/puppeteer
+        value: /opt/render/project/src/.cache/puppeteer
       # DATABASE_* , OPENROUTER_* , SITE_URL etc — set in Render Dashboard → Environment
