@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: offerhatke-sync
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: TZ
+        value: Asia/Kolkata
+      # DATABASE_* , OPENROUTER_* , SITE_URL etc — set in Render Dashboard → Environment
