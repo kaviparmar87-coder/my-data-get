@@ -5,9 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "sync-once": "node src/runOnce.js",
-    "postinstall": "npx puppeteer browsers install chrome",
-    "build": "npm install && npx puppeteer browsers install chrome"
+    "sync-once": "node src/runOnce.js"
   },
   "engines": {
     "node": ">=18"
