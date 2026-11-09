@@ -15,12 +15,12 @@ const log = (...a) => console.log('[install-chrome]', ...a);
 const err = (...a) => console.error('[install-chrome]', ...a);
 
 function walkForChrome(root, depth = 0) {
-  if (depth > 6) return null;
+  if (depth > 8) return null;
   let entries;
   try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
   for (const e of entries) {
     const p = path.join(root, e.name);
-    if (e.isFile() && (e.name === 'chrome' || e.name === 'chrome.exe')) return p;
+    if (e.isFile() && (e.name === 'chrome' || e.name === 'chrome.exe' || e.name === 'headless_shell')) return p;
     if (e.isDirectory()) {
       const found = walkForChrome(p, depth + 1);
       if (found) return found;
@@ -29,22 +29,43 @@ function walkForChrome(root, depth = 0) {
   return null;
 }
 
+function listTree(root, prefix = '', depth = 0, maxDepth = 5) {
+  if (depth > maxDepth) return;
+  let entries;
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    const p = path.join(root, e.name);
+    let size = '';
+    try { if (e.isFile()) size = ' (' + fs.statSync(p).size + ' bytes)'; } catch {}
+    console.log('[tree]', prefix + e.name + (e.isDirectory() ? '/' : '') + size);
+    if (e.isDirectory()) listTree(p, prefix + '  ', depth + 1, maxDepth);
+  }
+}
+
 function writePathFile(p) {
   fs.mkdirSync(path.dirname(pathFile), { recursive: true });
   fs.writeFileSync(pathFile, p, 'utf8');
-  log('pathFile written:', pathFile, '=>', p);
+  log('pathFile written:', p);
 }
 
 function verify(p) {
-  const ok = p && fs.existsSync(p);
-  log('verify', p, '=>', ok ? 'EXISTS' : 'MISSING');
+  let ok = false;
+  let stat = null;
+  try { ok = fs.existsSync(p); if (ok) stat = fs.statSync(p); } catch {}
+  log('verify', p, '=>', ok ? 'EXISTS size=' + (stat && stat.size) : 'MISSING');
   return ok;
 }
 
 async function main() {
   log('cwd =', process.cwd());
   log('cacheDir =', cacheDir);
-  log('platform =', process.platform);
+  log('platform =', process.platform, 'arch =', process.arch);
+
+  // disk space (linux)
+  try {
+    const { execSync } = require('child_process');
+    log('df:', execSync('df -h ' + JSON.stringify(path.dirname(cacheDir)) + ' 2>/dev/null || df -h .', { encoding: 'utf8' }).trim());
+  } catch { /* */ }
 
   // 1) path file already valid?
   if (fs.existsSync(pathFile)) {
@@ -54,11 +75,18 @@ async function main() {
   }
 
   // 2) scan cache
-  const scanned = walkForChrome(cacheDir);
-  if (scanned) {
-    try { fs.chmodSync(scanned, 0o755); } catch {}
-    writePathFile(scanned);
-    if (verify(scanned)) return;
+  if (fs.existsSync(cacheDir)) {
+    log('cache tree BEFORE install:');
+    listTree(cacheDir);
+    const scanned = walkForChrome(cacheDir);
+    if (scanned) {
+      try { fs.chmodSync(scanned, 0o755); } catch {}
+      writePathFile(scanned);
+      if (verify(scanned)) return;
+    }
+  } else {
+    log('cacheDir does not exist yet, creating');
+    fs.mkdirSync(cacheDir, { recursive: true });
   }
 
   // 3) clean partial + install
@@ -68,17 +96,31 @@ async function main() {
     fs.rmSync(chromeRoot, { recursive: true, force: true });
   }
 
-  const { install, detectBrowserPlatform, Browser } = require('@puppeteer/browsers');
+  const { install, detectBrowserPlatform, Browser, computeExecutablePath } = require('@puppeteer/browsers');
   const platform = detectBrowserPlatform();
   log('installing chrome@' + expectedVersion, 'platform=' + platform, '...');
 
+  const started = Date.now();
   const result = await install({
     browser: Browser.CHROME,
     buildId: expectedVersion,
     cacheDir,
     platform,
   });
+  log('install() took', Math.round((Date.now() - started) / 1000) + 's');
   log('install() executablePath =', result.executablePath);
+
+  // Also show what puppeteer/@puppeteer/browsers thinks the path should be
+  try {
+    const expected = computeExecutablePath({ browser: Browser.CHROME, buildId: expectedVersion, cacheDir, platform });
+    log('computeExecutablePath =', expected);
+  } catch (e) { log('computeExecutablePath error:', e.message); }
+
+  // tree AFTER install
+  if (fs.existsSync(cacheDir)) {
+    log('cache tree AFTER install:');
+    listTree(cacheDir);
+  }
 
   const execPath = result.executablePath;
   if (!verify(execPath)) {
@@ -93,6 +135,13 @@ async function main() {
 
   try { fs.chmodSync(execPath, 0o755); } catch {}
   writePathFile(execPath);
+
+  // final sanity: file is executable and non-empty
+  const st = fs.statSync(execPath);
+  if (st.size < 1000000) {
+    throw new Error('chrome binary suspiciously small: ' + st.size + ' bytes');
+  }
+  log('binary size OK:', st.size, 'bytes');
 }
 
 main().then(() => {
