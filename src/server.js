@@ -12,14 +12,22 @@ const app = express();
 function ensureChrome() {
   try {
     const cacheDir = process.env.PUPPETEER_CACHE_DIR || path.join(__dirname, '..', '.cache', 'puppeteer');
+    const pathFile = path.join(__dirname, '..', '.cache', 'chrome-path.txt');
+    const isWin = process.platform === 'win32';
+    const bin = isWin ? 'chrome.exe' : 'chrome';
     const candidates = [
-      path.join(cacheDir, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', 'chrome'),
-      path.join(cacheDir, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', 'chrome.exe'),
-    ];
-    if (candidates.some((p) => fs.existsSync(p))) {
-      log('Chrome found in cache');
+      fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : null,
+      path.join(cacheDir, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', bin),
+      path.join(cacheDir, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', bin),
+    ].filter(Boolean);
+
+    const found = candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+    if (found) {
+      process.env.PUPPETEER_EXECUTABLE_PATH = found;
+      log('Chrome found:', found);
       return;
     }
+
     log('Chrome missing — running install-chrome.js ...');
     const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'install-chrome.js')], {
       stdio: 'inherit',
@@ -27,9 +35,18 @@ function ensureChrome() {
     });
     if (r.status !== 0) {
       error('Chrome install failed (exit ' + r.status + ') — browser fallback will not work');
-    } else {
-      log('Chrome install completed');
+      return;
     }
+    // Re-read path file after install
+    if (fs.existsSync(pathFile)) {
+      const p = fs.readFileSync(pathFile, 'utf8').trim();
+      if (p && fs.existsSync(p)) {
+        process.env.PUPPETEER_EXECUTABLE_PATH = p;
+        log('Chrome installed →', p);
+        return;
+      }
+    }
+    log('Chrome install completed (verify via path file)');
   } catch (e) {
     error('ensureChrome error:', e.message);
   }

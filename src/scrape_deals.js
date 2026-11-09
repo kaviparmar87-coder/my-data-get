@@ -9,8 +9,10 @@ process.env.PUPPETEER_CACHE_DIR = CHROME_CACHE;
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true';
 
 function findChromeExecutable() {
+    const pathFile = path.join(PROJECT_ROOT, '.cache', 'chrome-path.txt');
     const candidates = [
         process.env.PUPPETEER_EXECUTABLE_PATH,
+        fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : null,
         path.join(CHROME_CACHE, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', 'chrome'),
         path.join(CHROME_CACHE, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', 'chrome.exe'),
         path.join(CHROME_CACHE, 'chrome', 'mac-131.0.6778.204', 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
@@ -23,10 +25,22 @@ function findChromeExecutable() {
         const chromeRoot = path.join(CHROME_CACHE, 'chrome');
         if (fs.existsSync(chromeRoot)) {
             for (const ver of fs.readdirSync(chromeRoot)) {
-                for (const plat of fs.readdirSync(path.join(chromeRoot, ver))) {
+                const verDir = path.join(chromeRoot, ver);
+                if (!fs.statSync(verDir).isDirectory()) continue;
+                for (const plat of fs.readdirSync(verDir)) {
+                    const platDir = path.join(verDir, plat);
+                    if (!fs.statSync(platDir).isDirectory()) continue;
                     for (const bin of ['chrome', 'chrome.exe']) {
-                        const p = path.join(chromeRoot, ver, plat, bin);
+                        const p = path.join(platDir, bin);
                         if (fs.existsSync(p)) return p;
+                    }
+                    for (const sub of fs.readdirSync(platDir)) {
+                        const subDir = path.join(platDir, sub);
+                        if (!fs.statSync(subDir).isDirectory()) continue;
+                        for (const bin of ['chrome', 'chrome.exe']) {
+                            const p = path.join(subDir, bin);
+                            if (fs.existsSync(p)) return p;
+                        }
                     }
                 }
             }
@@ -83,9 +97,13 @@ async function scrape(body) {
         throw new Error('Unsupported browser pagination parameters. Retry from the first page.');
     }
     const executablePath = findChromeExecutable();
+    if (!executablePath) {
+        throw new Error('Chrome executable not found. Run: node scripts/install-chrome.js (cache=' + CHROME_CACHE + ')');
+    }
+    console.log('[scrape] using Chrome:', executablePath);
     const browser = await puppeteer.launch({
         headless: true,
-        ...(executablePath ? { executablePath } : {}),
+        executablePath,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
