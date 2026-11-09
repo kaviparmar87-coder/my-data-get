@@ -115,18 +115,23 @@ async function scrape(body) {
         throw new Error('Chrome executable not found even after install. cache=' + CHROME_CACHE);
     }
     console.log('[scrape] using Chrome:', executablePath);
-    const browser = await puppeteer.launch({
-        headless: true,
-        executablePath,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-        ],
-    });
+    const { withTimeout } = require('./helpers');
+    const browser = await withTimeout(
+        puppeteer.launch({
+            headless: true,
+            executablePath,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+            ],
+        }),
+        60000,
+        'puppeteer-launch'
+    );
     try {
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
@@ -192,7 +197,7 @@ async function scrape(body) {
         return { data: filtered.slice(offset, offset + limit),
             nextCursor: more || filtered.length > offset + limit ? 'browser:' + (offset + limit) : null };
     } finally {
-        await browser.close();
+        await browser.close().catch(() => {});
     }
 }
 

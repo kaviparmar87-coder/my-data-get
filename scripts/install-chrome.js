@@ -122,8 +122,10 @@ async function main() {
   log('platform =', process.platform);
 
   try {
-    const { execSync } = require('child_process');
-    log('df:', execSync('df -h .', { encoding: 'utf8' }).trim().split('\n').slice(0, 2).join(' | '));
+    if (process.platform !== 'win32') {
+      const { execSync } = require('child_process');
+      log('df:', execSync('df -h .', { encoding: 'utf8' }).trim().split('\n').slice(0, 2).join(' | '));
+    }
   } catch {}
 
   // 1) path file valid?

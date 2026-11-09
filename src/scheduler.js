@@ -1,12 +1,18 @@
 const config = require('./config');
-const { runFullSync } = require('./sync');
+const { runFullSync, getStatus } = require('./sync');
 const { log } = require('./logger');
 
 let timer = null;
 let started = false;
+let ticks = 0;
 
 async function tick() {
+  ticks++;
   try {
+    const st = await getStatus().catch(() => null);
+    log(
+      `[scheduler] tick #${ticks} every=${config.syncIntervalSeconds}s running=${st?.running ?? '?'} lastRun=${st?.lastRun?.at ?? 'never'}`
+    );
     await runFullSync();
   } catch (e) {
     console.error('Scheduler tick error:', e);
@@ -24,8 +30,7 @@ function startScheduler() {
   setTimeout(tick, 3000);
 
   timer = setInterval(tick, intervalMs);
-
-  // Don't keep process alive solely for the timer if server handles that
+  // Keep the interval alive even if nothing else holds the event loop
   if (timer.unref) timer.unref();
 }
 

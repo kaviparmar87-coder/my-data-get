@@ -1,6 +1,10 @@
 const config = require('./config');
 const { log, warn } = require('./logger');
 const { scrape } = require('./scrape_deals');
+const { withTimeout } = require('./helpers');
+
+// Browser scrape must never hang the scheduler forever
+const SCRAPE_TIMEOUT_MS = 150000;
 
 async function httpPost(url, body, headers, timeoutMs = 30000) {
   const controller = new AbortController();
@@ -77,7 +81,7 @@ async function fetchLatest(cursor = null) {
 }
 
 async function scrapeViaPuppeteer(body) {
-  const result = await scrape(body);
+  const result = await withTimeout(scrape(body), SCRAPE_TIMEOUT_MS, 'puppeteer-scrape');
   if (!result || !Array.isArray(result.data)) {
     throw new Error(`Browser fallback failed: ${result?.error || 'invalid deals response'}`);
   }

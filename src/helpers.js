@@ -58,6 +58,14 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function withTimeout(promise, ms, label = 'operation') {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
 module.exports = {
   STORE_MAP,
   CATEGORY_PATTERNS,
@@ -67,4 +75,5 @@ module.exports = {
   truncate,
   nowMysql,
   sleep,
+  withTimeout,
 };

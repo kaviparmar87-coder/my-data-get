@@ -2,10 +2,17 @@ const { query } = require('./db');
 const { runIngestion } = require('./ingestion');
 const { runSeoBatch } = require('./seoWorker');
 const { log, warn, error } = require('./logger');
+const { withTimeout } = require('./helpers');
 
 let running = false;
+let startedAt = 0;
 let lastRun = null;
 const logLines = [];
+
+// If a run somehow never settles, force-unlock after this long
+const RUN_STALE_MS = 8 * 60 * 1000;
+// Hard cap on one full sync (ingest + SEO)
+const RUN_TIMEOUT_MS = 6 * 60 * 1000;
 
 function pushLog(line) {
   const ts = new Date().toTimeString().slice(0, 8);
@@ -13,6 +20,10 @@ function pushLog(line) {
   logLines.push(entry);
   if (logLines.length > 200) logLines.shift();
   log(entry);
+}
+
+function isStale() {
+  return running && startedAt > 0 && Date.now() - startedAt > RUN_STALE_MS;
 }
 
 async function getStatus() {
@@ -29,6 +40,7 @@ async function getStatus() {
     seo_pending: Number(stats?.seo_pending || 0),
     seo_failed: Number(stats?.seo_failed || 0),
     running,
+    runningForSec: running && startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0,
     lastRun,
     log: logLines.slice(-50),
   };
@@ -41,26 +53,42 @@ async function getOneRow(sql) {
 
 async function runFullSync() {
   if (running) {
-    pushLog('Sync already running — skipped');
-    return { skipped: true };
+    if (isStale()) {
+      warn(`Sync stale after ${Math.round((Date.now() - startedAt) / 1000)}s — force unlock`);
+      pushLog(`Force-unlock stale sync (ran ${Math.round((Date.now() - startedAt) / 1000)}s)`);
+      running = false;
+    } else {
+      pushLog('Sync already running — skipped');
+      return { skipped: true };
+    }
   }
 
   running = true;
-  const started = Date.now();
+  startedAt = Date.now();
+  const started = startedAt;
   pushLog('Starting full sync (deals + SEO)...');
 
   try {
-    const ingestion = await runIngestion();
-    pushLog(
-      `Deals: ${ingestion.created} created, ${ingestion.updated} updated, ${ingestion.skipped} skipped`
+    const result = await withTimeout(
+      (async () => {
+        const ingestion = await runIngestion();
+        pushLog(
+          `Deals: ${ingestion.created} created, ${ingestion.updated} updated, ${ingestion.skipped} skipped`
+        );
+
+        let seo = { processed: 0, viaAi: 0 };
+        if (require('./config').seo.enabled && require('./config').seo.apiKey) {
+          seo = await runSeoBatch();
+          pushLog(`SEO enriched ${seo.processed} product(s)`);
+        }
+
+        return { ingestion, seo };
+      })(),
+      RUN_TIMEOUT_MS,
+      'full-sync'
     );
 
-    let seo = { processed: 0, viaAi: 0 };
-    if (require('./config').seo.enabled && require('./config').seo.apiKey) {
-      seo = await runSeoBatch();
-      pushLog(`SEO enriched ${seo.processed} product(s)`);
-    }
-
+    const { ingestion, seo } = result;
     const elapsed = ((Date.now() - started) / 1000).toFixed(2);
     const status = await getStatus();
     pushLog(
@@ -83,6 +111,7 @@ async function runFullSync() {
     return { ok: false, error: e.message };
   } finally {
     running = false;
+    startedAt = 0;
   }
 }
 

@@ -9,6 +9,19 @@ const fs = require('fs');
 
 const app = express();
 
+// Render free sleeps after ~15 min with no inbound HTTP.
+// Keep a lightweight self-ping so the process stays warm between external pings.
+const KEEP_ALIVE_MS = 10 * 60 * 1000;
+function startKeepAlive() {
+  setInterval(() => {
+    const url = `http://127.0.0.1:${config.port}/health`;
+    fetch(url).then((r) => log(`[keep-alive] /health => ${r.status}`)).catch((e) => {
+      error('[keep-alive] failed:', e.message);
+    });
+  }, KEEP_ALIVE_MS).unref?.();
+  log(`Keep-alive ping every ${KEEP_ALIVE_MS / 60000}min (also set UptimeRobot → /health)`);
+}
+
 function walkForChrome(root, depth = 0) {
   if (depth > 6 || !fs.existsSync(root)) return null;
   let entries;
@@ -99,6 +112,7 @@ app.listen(config.port, '0.0.0.0', () => {
   log('Loaded env:', JSON.stringify(config.maskedSummary()));
   ensureChrome();
   startScheduler();
+  startKeepAlive();
 });
 
 process.on('unhandledRejection', (e) => {
