@@ -9,44 +9,47 @@ const fs = require('fs');
 
 const app = express();
 
+function walkForChrome(root, depth = 0) {
+  if (depth > 6 || !fs.existsSync(root)) return null;
+  let entries;
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
+  for (const e of entries) {
+    const p = path.join(root, e.name);
+    if (e.isFile() && (e.name === 'chrome' || e.name === 'chrome.exe')) return p;
+    if (e.isDirectory()) {
+      const f = walkForChrome(p, depth + 1);
+      if (f) return f;
+    }
+  }
+  return null;
+}
+
 function ensureChrome() {
   try {
     const cacheDir = process.env.PUPPETEER_CACHE_DIR || path.join(__dirname, '..', '.cache', 'puppeteer');
     const pathFile = path.join(__dirname, '..', '.cache', 'chrome-path.txt');
-    const isWin = process.platform === 'win32';
-    const bin = isWin ? 'chrome.exe' : 'chrome';
-    const candidates = [
-      fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : null,
-      path.join(cacheDir, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', bin),
-      path.join(cacheDir, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', bin),
-    ].filter(Boolean);
+    const trySet = (p) => {
+      if (p && fs.existsSync(p)) {
+        process.env.PUPPETEER_EXECUTABLE_PATH = p;
+        log('Chrome found:', p);
+        return true;
+      }
+      return false;
+    };
 
-    const found = candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
-    if (found) {
-      process.env.PUPPETEER_EXECUTABLE_PATH = found;
-      log('Chrome found:', found);
-      return;
-    }
+    if (fs.existsSync(pathFile) && trySet(fs.readFileSync(pathFile, 'utf8').trim())) return;
+    if (trySet(walkForChrome(cacheDir))) return;
 
     log('Chrome missing — running install-chrome.js ...');
     const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'install-chrome.js')], {
       stdio: 'inherit',
       env: { ...process.env, PUPPETEER_CACHE_DIR: cacheDir, PUPPETEER_SKIP_DOWNLOAD: 'true' },
     });
-    if (r.status !== 0) {
-      error('Chrome install failed (exit ' + r.status + ') — browser fallback will not work');
-      return;
-    }
-    // Re-read path file after install
-    if (fs.existsSync(pathFile)) {
-      const p = fs.readFileSync(pathFile, 'utf8').trim();
-      if (p && fs.existsSync(p)) {
-        process.env.PUPPETEER_EXECUTABLE_PATH = p;
-        log('Chrome installed →', p);
-        return;
-      }
-    }
-    log('Chrome install completed (verify via path file)');
+    log('install exit =', r.status);
+
+    if (fs.existsSync(pathFile) && trySet(fs.readFileSync(pathFile, 'utf8').trim())) return;
+    if (trySet(walkForChrome(cacheDir))) return;
+    error('Chrome still missing after install — browser fallback will not work');
   } catch (e) {
     error('ensureChrome error:', e.message);
   }

@@ -15,38 +15,49 @@ function findChromeExecutable() {
         fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : null,
         path.join(CHROME_CACHE, 'chrome', 'linux-131.0.6778.204', 'chrome-linux64', 'chrome'),
         path.join(CHROME_CACHE, 'chrome', 'win64-131.0.6778.204', 'chrome-win64', 'chrome.exe'),
-        path.join(CHROME_CACHE, 'chrome', 'mac-131.0.6778.204', 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+        // system chrome on linux hosts
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
     ];
     for (const p of candidates) {
         if (p && fs.existsSync(p)) return p;
     }
-    // Fallback: scan cache dir for any chrome binary
     try {
-        const chromeRoot = path.join(CHROME_CACHE, 'chrome');
-        if (fs.existsSync(chromeRoot)) {
-            for (const ver of fs.readdirSync(chromeRoot)) {
-                const verDir = path.join(chromeRoot, ver);
-                if (!fs.statSync(verDir).isDirectory()) continue;
-                for (const plat of fs.readdirSync(verDir)) {
-                    const platDir = path.join(verDir, plat);
-                    if (!fs.statSync(platDir).isDirectory()) continue;
-                    for (const bin of ['chrome', 'chrome.exe']) {
-                        const p = path.join(platDir, bin);
-                        if (fs.existsSync(p)) return p;
-                    }
-                    for (const sub of fs.readdirSync(platDir)) {
-                        const subDir = path.join(platDir, sub);
-                        if (!fs.statSync(subDir).isDirectory()) continue;
-                        for (const bin of ['chrome', 'chrome.exe']) {
-                            const p = path.join(subDir, bin);
-                            if (fs.existsSync(p)) return p;
-                        }
-                    }
-                }
-            }
-        }
-    } catch { /* ignore */ }
+        const found = walkForChrome(CHROME_CACHE);
+        if (found) return found;
+    } catch { /* */ }
     return null;
+}
+
+function walkForChrome(root, depth = 0) {
+    if (depth > 6 || !fs.existsSync(root)) return null;
+    let entries;
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
+    for (const e of entries) {
+        const p = path.join(root, e.name);
+        if (e.isFile() && (e.name === 'chrome' || e.name === 'chrome.exe')) return p;
+        if (e.isDirectory()) {
+            const f = walkForChrome(p, depth + 1);
+            if (f) return f;
+        }
+    }
+    return null;
+}
+
+function ensureChromeSync() {
+    let exe = findChromeExecutable();
+    if (exe) return exe;
+    console.log('[scrape] Chrome missing — running install-chrome.js ...');
+    const r = require('child_process').spawnSync(
+        process.execPath,
+        [path.join(PROJECT_ROOT, 'scripts', 'install-chrome.js')],
+        { stdio: 'inherit', env: { ...process.env, PUPPETEER_CACHE_DIR: CHROME_CACHE, PUPPETEER_SKIP_DOWNLOAD: 'true' } }
+    );
+    console.log('[scrape] install exit =', r.status);
+    exe = findChromeExecutable();
+    return exe;
 }
 
 const puppeteer = require('puppeteer');
@@ -96,9 +107,12 @@ async function scrape(body) {
         (body.cursor && !/^browser:\d+$/.test(body.cursor))) {
         throw new Error('Unsupported browser pagination parameters. Retry from the first page.');
     }
-    const executablePath = findChromeExecutable();
+    let executablePath = findChromeExecutable();
     if (!executablePath) {
-        throw new Error('Chrome executable not found. Run: node scripts/install-chrome.js (cache=' + CHROME_CACHE + ')');
+        executablePath = ensureChromeSync();
+    }
+    if (!executablePath) {
+        throw new Error('Chrome executable not found even after install. cache=' + CHROME_CACHE);
     }
     console.log('[scrape] using Chrome:', executablePath);
     const browser = await puppeteer.launch({
