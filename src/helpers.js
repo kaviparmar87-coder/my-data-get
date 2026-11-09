@@ -48,10 +48,30 @@ function truncate(str, max) {
   return String(str ?? '').slice(0, max);
 }
 
-function nowMysql() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+/** MySQL datetime string always in Asia/Kolkata — never process-local TZ. */
+function nowMysql(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (t) => parts.find((p) => p.type === t).value;
+  // hour12:false can yield "24" for midnight in some engines
+  const hour = get('hour') === '24' ? '00' : get('hour');
+  return `${get('year')}-${get('month')}-${get('day')} ${hour}:${get('minute')}:${get('second')}`;
+}
+
+/** Convert any Date/ISO string to Asia/Kolkata MySQL datetime (for sourceUpdatedAt etc). */
+function toMysqlIst(value) {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return nowMysql(d);
 }
 
 function sleep(ms) {
@@ -74,6 +94,7 @@ module.exports = {
   slugify,
   truncate,
   nowMysql,
+  toMysqlIst,
   sleep,
   withTimeout,
 };

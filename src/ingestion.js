@@ -6,6 +6,7 @@ const {
   slugify,
   truncate,
   nowMysql,
+  toMysqlIst,
 } = require('./helpers');
 const config = require('./config');
 const { log, warn } = require('./logger');
@@ -42,7 +43,7 @@ async function upsertDeal(deal, catMap) {
   const sourceName = truncate(p.name, 300);
   const imageUrl = p.image || '';
   const sourceUrl = p.url;
-  const sourceUpdatedAt = deal.updatedAt ? new Date(deal.updatedAt) : null;
+  const sourceUpdatedAt = toMysqlIst(deal.updatedAt);
   const isAllTimeLow = deal.is_all_time_low ? 1 : 0;
   const rare = deal.rare ? 1 : 0;
   const featured = deal.featured ? 1 : 0;
